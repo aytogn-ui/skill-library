@@ -1,0 +1,68 @@
+workflows:
+  ios-release:
+    name: iOS Release (App Store)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: App Store Connect API  # Codemagic管理画面で設定
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.skilllibrary.skillLibrary
+      vars:
+        APP_STORE_APPLE_ID: "" # App Store Connect の Apple ID (数字)
+      flutter: 3.35.4
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
+      - name: Build iOS release
+        script: |
+          flutter build ipa \
+            --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false  # 最初はTestFlightのみ; 本番公開時はtrueに変更
+
+  android-release:
+    name: Android Release (Google Play)
+    max_build_duration: 120
+    instance_type: linux_x2
+    environment:
+      android_signing:
+        - skill_library_keystore  # Codemagic管理画面のCode Signingで設定
+      vars:
+        PACKAGE_NAME: com.skilllibrary.skills
+      flutter: 3.35.4
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle \
+            --release \
+            --build-name=1.0.0 \
+            --build-number=$(($(google-play get-latest-build-number \
+              --package-name "$PACKAGE_NAME" \
+              --tracks=alpha) + 1))
+    artifacts:
+      - build/app/outputs/bundle/release/app-release.aab
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true

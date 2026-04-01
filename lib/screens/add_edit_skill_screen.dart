@@ -8,6 +8,7 @@ import '../models/skill.dart';
 import '../providers/skill_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mastery_slider.dart';
+import 'video_split_screen.dart';
 
 class AddEditSkillScreen extends StatefulWidget {
   final String? skillId;
@@ -117,6 +118,10 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
             children: [
               // 動画エリア
               _buildVideoSection(),
+              if (!kIsWeb) ...[
+                const SizedBox(height: 8),
+                _buildVideoSplitBanner(),
+              ],
               const SizedBox(height: 20),
               // タイトル
               _buildTextField(
@@ -318,6 +323,40 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
                     ),
                   ],
                 ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoSplitBanner() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const VideoSplitScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.teal.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.teal.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.content_cut, color: AppTheme.teal, size: 16),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '動画を分割してスキル登録 →',
+                style: TextStyle(
+                  color: AppTheme.teal,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            Icon(Icons.chevron_right, color: AppTheme.teal, size: 18),
+          ],
         ),
       ),
     );

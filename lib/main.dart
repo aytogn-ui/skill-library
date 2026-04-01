@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'models/skill.dart';
 import 'models/routine.dart';
+import 'models/routine_skill_stats.dart';
 import 'providers/skill_provider.dart';
 import 'providers/routine_provider.dart';
 import 'theme/app_theme.dart';
@@ -19,9 +20,11 @@ void main() async {
   await Hive.initFlutter();
   Hive.registerAdapter(SkillAdapter());
   Hive.registerAdapter(RoutineAdapter());
+  Hive.registerAdapter(RoutineSkillStatsAdapter());
 
   final skillBox = await Hive.openBox<Skill>('skills');
   final routineBox = await Hive.openBox<Routine>('routines');
+  final statsBox = await Hive.openBox<RoutineSkillStats>('routine_skill_stats');
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -37,7 +40,7 @@ void main() async {
           create: (_) => SkillProvider()..init(skillBox),
         ),
         ChangeNotifierProvider(
-          create: (_) => RoutineProvider()..init(routineBox),
+          create: (_) => RoutineProvider()..init(routineBox, statsBox),
         ),
       ],
       child: const SkillLibraryApp(),
@@ -83,15 +86,12 @@ class _MainNavigatorState extends State<MainNavigator> {
         index: _currentIndex,
         children: _screens,
       ),
-      // ホーム画面のみ FAB を表示
       floatingActionButton: _currentIndex == 0
           ? FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AddEditSkillScreen()),
-                );
-              },
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddEditSkillScreen()),
+              ),
               backgroundColor: AppTheme.primaryPurple,
               child: const Icon(Icons.add, color: Colors.white),
             )

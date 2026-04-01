@@ -2,10 +2,6 @@
 
 part of 'skill.dart';
 
-// **************************************************************************
-// TypeAdapterGenerator
-// **************************************************************************
-
 class SkillAdapter extends TypeAdapter<Skill> {
   @override
   final int typeId = 0;
@@ -33,13 +29,16 @@ class SkillAdapter extends TypeAdapter<Skill> {
       createdAt: fields[13] as DateTime,
       updatedAt: fields[14] as DateTime?,
       thumbnailUrl: fields[15] as String?,
+      startTimeMs: fields[16] as int?,
+      endTimeMs: fields[17] as int?,
+      sourceVideoId: fields[18] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Skill obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -71,7 +70,13 @@ class SkillAdapter extends TypeAdapter<Skill> {
       ..writeByte(14)
       ..write(obj.updatedAt)
       ..writeByte(15)
-      ..write(obj.thumbnailUrl);
+      ..write(obj.thumbnailUrl)
+      ..writeByte(16)
+      ..write(obj.startTimeMs)
+      ..writeByte(17)
+      ..write(obj.endTimeMs)
+      ..writeByte(18)
+      ..write(obj.sourceVideoId);
   }
 
   @override

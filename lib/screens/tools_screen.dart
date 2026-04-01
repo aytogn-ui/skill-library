@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/skill_provider.dart';
 import '../models/skill.dart';
 import '../theme/app_theme.dart';
+import 'video_split_screen.dart';
 
 class ToolsScreen extends StatefulWidget {
   const ToolsScreen({super.key});
@@ -213,6 +214,39 @@ class _ToolsScreenState extends State<ToolsScreen>
             ),
           ),
           const Spacer(),
+          // 動画分割ボタン
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const VideoSplitScreen(),
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.teal.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.teal.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.content_cut, color: AppTheme.teal, size: 14),
+                  SizedBox(width: 4),
+                  Text(
+                    '動画分割',
+                    style: TextStyle(
+                      color: AppTheme.teal,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           // 状態インジケーター
           AnimatedContainer(
             duration: const Duration(milliseconds: 300),

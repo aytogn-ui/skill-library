@@ -26,6 +26,8 @@ dependencies:
   cupertino_icons: 1.0.8
   flutter_slidable: 4.0.3
   percent_indicator: 4.2.3
+  fl_chart: 0.69.0
+  characters: 1.4.0
 
   # ユーティリティ
   uuid: 4.5.1

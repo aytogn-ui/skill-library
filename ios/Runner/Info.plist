@@ -45,5 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- カメラ・フォトライブラリ・マイク (image_picker / video_player 必須) -->
+	<key>NSCameraUsageDescription</key>
+	<string>技の動画を撮影するためにカメラへのアクセスが必要です。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>技の動画や画像をライブラリから選択するためにアクセスが必要です。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>撮影した動画をフォトライブラリに保存するためにアクセスが必要です。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>動画撮影時に音声を録音するためにマイクへのアクセスが必要です。</string>
 </dict>
 </plist>

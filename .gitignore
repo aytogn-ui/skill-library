@@ -1,5 +1,5 @@
 # Flutter/Dart
-# Build outputs (exclude to save space)
+# Build outputs
 /build/
 /.dart_tool/
 .packages
@@ -21,6 +21,23 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+*.bak
+
+# iOS - CocoaPods (Codemagicがビルド時にインストールするため除外)
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# Codemagic / CI - 証明書ファイル
+*.p12
+*.mobileprovision
+*.cer
 
 # Keep lib/ directory for source code!
 

@@ -23,10 +23,10 @@ class Skill extends HiveObject {
   List<String> tags;
 
   @HiveField(6)
-  int difficulty; // 1-5
+  int difficulty;
 
   @HiveField(7)
-  int mastery; // 0-100
+  int mastery;
 
   @HiveField(8)
   int successCount;
@@ -41,7 +41,7 @@ class Skill extends HiveObject {
   String? tips;
 
   @HiveField(12)
-  String visibility; // 'private'
+  String visibility;
 
   @HiveField(13)
   late DateTime createdAt;
@@ -49,9 +49,18 @@ class Skill extends HiveObject {
   @HiveField(14)
   DateTime? updatedAt;
 
-  // フィールド15: ネットワーク画像URL（サンプルデータ・Web表示用）
   @HiveField(15)
   String? thumbnailUrl;
+
+  // 動画分割用フィールド
+  @HiveField(16)
+  int? startTimeMs; // ミリ秒
+
+  @HiveField(17)
+  int? endTimeMs; // ミリ秒
+
+  @HiveField(18)
+  String? sourceVideoId; // 元動画のスキルID or パス
 
   Skill({
     required this.id,
@@ -70,6 +79,9 @@ class Skill extends HiveObject {
     this.visibility = 'private',
     DateTime? createdAt,
     this.updatedAt,
+    this.startTimeMs,
+    this.endTimeMs,
+    this.sourceVideoId,
   })  : tags = tags ?? [],
         createdAt = createdAt ?? DateTime.now();
 
@@ -84,6 +96,8 @@ class Skill extends HiveObject {
     if (total == 0) return '-';
     return '${(successRate * 100).toStringAsFixed(1)}%';
   }
+
+  bool get isClipped => startTimeMs != null && endTimeMs != null;
 
   Skill copyWith({
     String? id,
@@ -102,6 +116,9 @@ class Skill extends HiveObject {
     String? visibility,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? startTimeMs,
+    int? endTimeMs,
+    String? sourceVideoId,
   }) {
     return Skill(
       id: id ?? this.id,
@@ -120,6 +137,9 @@ class Skill extends HiveObject {
       visibility: visibility ?? this.visibility,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
+      startTimeMs: startTimeMs ?? this.startTimeMs,
+      endTimeMs: endTimeMs ?? this.endTimeMs,
+      sourceVideoId: sourceVideoId ?? this.sourceVideoId,
     );
   }
 }
