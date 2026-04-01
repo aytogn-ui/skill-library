@@ -4,13 +4,11 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
-      app_store_connect: App Store Connect API  # Codemagic管理画面で設定
+      app_store_connect: App Store Connect API
     environment:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.skilllibrary.skillLibrary
-      vars:
-        APP_STORE_APPLE_ID: "" # App Store Connect の Apple ID (数字)
       flutter: 3.35.4
       xcode: latest
       cocoapods: default
@@ -24,9 +22,7 @@ workflows:
         script: flutter analyze --no-fatal-infos
       - name: Build iOS release
         script: |
-          flutter build ipa \
-            --release \
-            --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
@@ -34,7 +30,7 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        submit_to_app_store: false  # 最初はTestFlightのみ; 本番公開時はtrueに変更
+        submit_to_app_store: false
 
   android-release:
     name: Android Release (Google Play)
@@ -42,7 +38,7 @@ workflows:
     instance_type: linux_x2
     environment:
       android_signing:
-        - skill_library_keystore  # Codemagic管理画面のCode Signingで設定
+        - skill_library_keystore
       vars:
         PACKAGE_NAME: com.skilllibrary.skills
       flutter: 3.35.4
@@ -56,9 +52,7 @@ workflows:
           flutter build appbundle \
             --release \
             --build-name=1.0.0 \
-            --build-number=$(($(google-play get-latest-build-number \
-              --package-name "$PACKAGE_NAME" \
-              --tracks=alpha) + 1))
+            --build-number=1
     artifacts:
       - build/app/outputs/bundle/release/app-release.aab
     publishing:
