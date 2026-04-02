@@ -29,6 +29,11 @@ workflows:
             com.skilllibrary.skillLibrary \
             --type IOS_APP_STORE \
             --create
+      - name: Create certificate if missing
+        script: |
+          app-store-connect certificates list --type IOS_DISTRIBUTION || \
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION
       - name: Add certs to keychain
         script: |
           keychain add-certificates
