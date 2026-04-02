@@ -903,7 +903,7 @@ class _SkillCreateSheetState extends State<_SkillCreateSheet> {
     final s = ms ~/ 1000;
     final m = s ~/ 60;
     final sec = s % 60;
-    return '${m}:${sec.toString().padLeft(2, '0')}';
+    return '$m:${sec.toString().padLeft(2, '0')}';
   }
 
   @override

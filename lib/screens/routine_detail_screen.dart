@@ -487,7 +487,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                               .withValues(alpha: 0.4)),
                     ),
                     child: Text(
-                      '${_playbackSpeed}×',
+                      '$_playbackSpeed×',
                       style: const TextStyle(
                           color: AppTheme.primaryPurple,
                           fontSize: 13,
@@ -636,7 +636,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                       ),
                     ),
                     child: Text(
-                      '${speed}×',
+                      '$speed×',
                       style: TextStyle(
                         color: selected
                             ? Colors.white
