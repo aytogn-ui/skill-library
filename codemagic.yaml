@@ -6,6 +6,8 @@ workflows:
     integrations:
       app_store_connect: CODEMAGIC
     environment:
+      groups:
+        - ios_credentials
       flutter: 3.35.4
       xcode: latest
       cocoapods: default
