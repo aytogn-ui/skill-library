@@ -6,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: CODEMAGIC
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.skilllibrary.skillLibrary
       flutter: 3.35.4
       xcode: latest
       cocoapods: default
