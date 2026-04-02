@@ -6,6 +6,8 @@ workflows:
     integrations:
       app_store_connect: CODEMAGIC
     environment:
+      groups:
+        - ios_credentials
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.skilllibrary.skillLibrary
@@ -22,9 +24,7 @@ workflows:
         script: flutter analyze --no-fatal-infos
       - name: Build iOS release
         script: |
-          flutter build ipa \
-            --release \
-            --export-options-plist=$CM_EXPORT_OPTIONS_PATH
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
