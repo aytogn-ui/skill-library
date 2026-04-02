@@ -8,6 +8,7 @@ import '../providers/routine_provider.dart';
 import '../providers/skill_provider.dart';
 import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fullscreen_video_player.dart';
 
 class RoutineDetailScreen extends StatefulWidget {
   final String routineId;
@@ -23,6 +24,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
   int _currentSkillIndex = 0;
   bool _isPlaying = false;
   bool _isPlayerLoading = false;
+  bool _isFullscreen = false;
   double _playbackSpeed = 1.0;
   final List<double> _speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5];
 
@@ -194,6 +196,30 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
   Future<void> _setSpeed(double speed) async {
     setState(() => _playbackSpeed = speed);
     await _videoController?.setPlaybackSpeed(speed);
+  }
+
+  Future<void> _enterFullscreen() async {
+    if (_videoController == null || !_videoController!.value.isInitialized) {
+      return;
+    }
+    setState(() => _isFullscreen = true);
+    await pushFullscreenVideo(
+      context: context,
+      controller: _videoController!,
+      isPlaying: _isPlaying,
+      onTogglePlay: () {
+        if (_isPlaying) {
+          _videoController?.pause();
+        } else {
+          _videoController?.play();
+        }
+        if (mounted) setState(() => _isPlaying = !_isPlaying);
+      },
+      onExit: () {
+        if (mounted) setState(() => _isFullscreen = false);
+      },
+    );
+    if (mounted) setState(() => _isFullscreen = false);
   }
 
   // ─────────────────────────────────────────────
@@ -398,6 +424,17 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                    ),
+                  ),
+                // 全画面ボタン（右下）
+                if (_videoController != null &&
+                    _videoController!.value.isInitialized)
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: FullscreenButton(
+                      isFullscreen: _isFullscreen,
+                      onTap: _enterFullscreen,
                     ),
                   ),
               ],

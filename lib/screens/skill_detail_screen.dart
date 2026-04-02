@@ -8,6 +8,8 @@ import '../providers/skill_provider.dart';
 import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mastery_slider.dart';
+import '../widgets/fullscreen_video_player.dart';
+import '../widgets/skill_success_rate_widget.dart';
 import 'add_edit_skill_screen.dart';
 
 class SkillDetailScreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
   bool _isInitialized = false;
   bool _isPlaying = false;
   bool _isLoading = false;
+  bool _isFullscreen = false;
 
   @override
   void initState() {
@@ -97,6 +100,21 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
     setState(() => _isPlaying = !_isPlaying);
   }
 
+  Future<void> _enterFullscreen(Skill skill) async {
+    if (_controller == null || !_isInitialized) return;
+    setState(() => _isFullscreen = true);
+    await pushFullscreenVideo(
+      context: context,
+      controller: _controller!,
+      isPlaying: _isPlaying,
+      onTogglePlay: _togglePlay,
+      onExit: () {
+        if (mounted) setState(() => _isFullscreen = false);
+      },
+    );
+    if (mounted) setState(() => _isFullscreen = false);
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -141,6 +159,9 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
                   _buildTitleSection(skill),
                   const SizedBox(height: 16),
                   _buildMasterySection(skill, provider),
+                  const SizedBox(height: 16),
+                  // 直近100/50/30回の成功率
+                  SkillSuccessRateWidget(skillId: widget.skillId),
                   const SizedBox(height: 16),
                   _buildSuccessSection(skill, provider),
                   const SizedBox(height: 16),
@@ -256,6 +277,15 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
               left: 0,
               right: 0,
               child: _buildProgressBar(),
+            ),
+            // 全画面ボタン（右下・シークバー上）
+            Positioned(
+              bottom: 28,
+              right: 8,
+              child: FullscreenButton(
+                isFullscreen: _isFullscreen,
+                onTap: () => _enterFullscreen(skill),
+              ),
             ),
           ],
         ),

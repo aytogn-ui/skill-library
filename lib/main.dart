@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import 'models/skill.dart';
 import 'models/routine.dart';
 import 'models/routine_skill_stats.dart';
+import 'models/skill_attempt.dart';
 import 'providers/skill_provider.dart';
 import 'providers/routine_provider.dart';
+import 'providers/skill_attempt_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/skills_screen.dart';
@@ -21,10 +23,12 @@ void main() async {
   Hive.registerAdapter(SkillAdapter());
   Hive.registerAdapter(RoutineAdapter());
   Hive.registerAdapter(RoutineSkillStatsAdapter());
+  Hive.registerAdapter(SkillAttemptAdapter());
 
   final skillBox = await Hive.openBox<Skill>('skills');
   final routineBox = await Hive.openBox<Routine>('routines');
   final statsBox = await Hive.openBox<RoutineSkillStats>('routine_skill_stats');
+  final attemptBox = await Hive.openBox<SkillAttempt>('skill_attempts');
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -41,6 +45,9 @@ void main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => RoutineProvider()..init(routineBox, statsBox),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => SkillAttemptProvider()..init(attemptBox),
         ),
       ],
       child: const SkillLibraryApp(),
