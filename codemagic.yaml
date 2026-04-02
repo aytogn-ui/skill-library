@@ -6,8 +6,6 @@ workflows:
     integrations:
       app_store_connect: CODEMAGIC
     environment:
-      groups:
-        - ios_credentials
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.skilllibrary.skillLibrary
@@ -20,26 +18,8 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Set up keychain
-        script: |
-          keychain initialize
-      - name: Fetch signing files
-        script: |
-          app-store-connect fetch-signing-files \
-            com.skilllibrary.skillLibrary \
-            --type IOS_APP_STORE \
-            --create
-      - name: Create certificate if missing
-        script: |
-          app-store-connect certificates list --type IOS_DISTRIBUTION || \
-          app-store-connect certificates create \
-            --type IOS_DISTRIBUTION
-      - name: Add certs to keychain
-        script: |
-          keychain add-certificates
-      - name: Set up code signing settings
-        script: |
-          xcode-project use-profiles
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
       - name: Build iOS release
         script: |
           flutter build ipa --release
@@ -65,6 +45,8 @@ workflows:
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
       - name: Build Android App Bundle
         script: |
           flutter build appbundle \
