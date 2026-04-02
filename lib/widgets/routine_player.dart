@@ -1,14 +1,15 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../models/skill.dart';
+import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
+import 'dart:io';
 
 class RoutinePlayer extends StatefulWidget {
   final List<Skill> skills;
   final int initialIndex;
-  final ValueChanged<int> onSkillChanged; // 現在再生中のindex通知
+  final ValueChanged<int> onSkillChanged;
 
   const RoutinePlayer({
     super.key,
@@ -27,6 +28,7 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   double _playbackSpeed = 1.0;
   bool _isInitialized = false;
   bool _isPlaying = false;
+  bool _isTransitioning = false; // 連続再生中の二重トリガー防止
 
   static const List<double> _speeds = [0.5, 0.75, 1.0, 1.25, 1.5];
 
@@ -42,7 +44,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   @override
   void didUpdateWidget(RoutinePlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // スキルリストが変わった場合はリセット
     if (oldWidget.skills.length != widget.skills.length) {
       if (!kIsWeb && widget.skills.isNotEmpty) {
         _currentIndex = 0;
@@ -55,12 +56,18 @@ class RoutinePlayerState extends State<RoutinePlayer> {
     if (index >= widget.skills.length) return;
     final skill = widget.skills[index];
 
-    await _controller?.dispose();
+    // ① 既存プレイヤーをリスナー削除してから破棄
+    _controller?.removeListener(_onVideoProgress);
+    await VideoPlayerManager.instance.disposeCurrentController();
     _controller = null;
-    setState(() {
-      _isInitialized = false;
-      _isPlaying = false;
-    });
+
+    if (mounted) {
+      setState(() {
+        _isInitialized = false;
+        _isPlaying = false;
+        _isTransitioning = false;
+      });
+    }
 
     final path = skill.videoPath;
     if (path == null || path.isEmpty) {
@@ -68,19 +75,20 @@ class RoutinePlayerState extends State<RoutinePlayer> {
       return;
     }
 
-    _controller = VideoPlayerController.file(File(path));
+    // ② VideoPlayerManager 経由で新しいコントローラを生成（同時再生禁止）
+    final ctrl = await VideoPlayerManager.instance.createController(path);
+    if (ctrl == null || !mounted) return;
+
+    _controller = ctrl;
 
     try {
-      await _controller!.initialize();
-
-      // クリップ範囲がある場合は開始位置にシーク
+      // クリップ開始位置にシーク
       if (skill.isClipped && skill.startTimeMs != null) {
-        await _controller!.seekTo(Duration(milliseconds: skill.startTimeMs!));
+        await ctrl.seekTo(Duration(milliseconds: skill.startTimeMs!));
       }
-
-      _controller!.addListener(_onVideoProgress);
-      await _controller!.setPlaybackSpeed(_playbackSpeed);
-      await _controller!.play();
+      ctrl.addListener(_onVideoProgress);
+      await ctrl.setPlaybackSpeed(_playbackSpeed);
+      await ctrl.play();
 
       if (mounted) {
         setState(() {
@@ -90,19 +98,22 @@ class RoutinePlayerState extends State<RoutinePlayer> {
         widget.onSkillChanged(index);
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('Video init error: $e');
+      if (kDebugMode) debugPrint('[RoutinePlayer] play error: $e');
     }
   }
 
   void _onVideoProgress() {
     if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_isTransitioning) return; // 二重トリガー防止
 
     final pos = _controller!.value.position;
     final skill = widget.skills[_currentIndex];
 
-    // クリップ終端 or 動画終端に達したら次へ
-    final endMs = skill.isClipped ? skill.endTimeMs! : _controller!.value.duration.inMilliseconds;
-    if (pos.inMilliseconds >= endMs - 200) {
+    final endMs = skill.isClipped
+        ? (skill.endTimeMs ?? _controller!.value.duration.inMilliseconds)
+        : _controller!.value.duration.inMilliseconds;
+
+    if (endMs > 0 && pos.inMilliseconds >= endMs - 200) {
       _nextSkill();
     }
 
@@ -110,12 +121,17 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   }
 
   void _nextSkill() {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
+    // ルーティン全体でループ（各スキル単体ループ禁止）
     final next = (_currentIndex + 1) % widget.skills.length;
     _currentIndex = next;
     _initPlayer(next);
   }
 
   void _prevSkill() {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
     final prev = (_currentIndex - 1 + widget.skills.length) % widget.skills.length;
     _currentIndex = prev;
     _initPlayer(prev);
@@ -143,7 +159,7 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   Duration get _duration {
     if (_controller == null || !_isInitialized) return Duration.zero;
     final skill = widget.skills[_currentIndex];
-    if (skill.isClipped) {
+    if (skill.isClipped && skill.endTimeMs != null) {
       return Duration(milliseconds: (skill.endTimeMs! - (skill.startTimeMs ?? 0)));
     }
     return _controller!.value.duration;
@@ -152,7 +168,9 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   @override
   void dispose() {
     _controller?.removeListener(_onVideoProgress);
-    _controller?.dispose();
+    // 画面離脱時にプレイヤーを停止・破棄
+    VideoPlayerManager.instance.disposeCurrentController();
+    _controller = null;
     super.dispose();
   }
 
@@ -166,21 +184,17 @@ class RoutinePlayerState extends State<RoutinePlayer> {
       color: Colors.black,
       child: Column(
         children: [
-          // 動画エリア
           Expanded(
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // 動画 or サムネイル
                 _buildVideoArea(skill),
-                // スキル情報オーバーレイ
                 Positioned(
                   top: 10,
                   left: 12,
-                  right: 12,
+                  right: 72,
                   child: _buildSkillInfo(skill),
                 ),
-                // 速度バッジ
                 Positioned(
                   top: 10,
                   right: 12,
@@ -189,7 +203,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
               ],
             ),
           ),
-          // シークバー＋コントロール
           _buildControls(),
         ],
       ),
@@ -200,20 +213,27 @@ class RoutinePlayerState extends State<RoutinePlayer> {
     if (!_isInitialized || _controller == null) {
       return _buildThumbnailOrPlaceholder(skill);
     }
+
+    // ── Aspect Fit 実装 ──
+    // 動画のアスペクト比を維持しつつ、横幅にフィットさせる
     return GestureDetector(
       onTap: _togglePlay,
-      child: AspectRatio(
-        aspectRatio: _controller!.value.aspectRatio,
-        child: VideoPlayer(_controller!),
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: _controller!.value.aspectRatio,
+          child: VideoPlayer(_controller!),
+        ),
       ),
     );
   }
 
   Widget _buildThumbnailOrPlaceholder(Skill skill) {
-    // サムネイルがあれば表示
     if (skill.thumbnailUrl != null) {
-      return Image.network(skill.thumbnailUrl!, fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => _buildVideoPlaceholder(skill));
+      return Image.network(
+        skill.thumbnailUrl!,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => _buildVideoPlaceholder(skill),
+      );
     }
     if (skill.thumbnailPath != null) {
       final f = File(skill.thumbnailPath!);
@@ -242,42 +262,38 @@ class RoutinePlayerState extends State<RoutinePlayer> {
   }
 
   Widget _buildSkillInfo(Skill skill) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.65),
-            borderRadius: BorderRadius.circular(20),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${_currentIndex + 1} / ${widget.skills.length}',
+            style: const TextStyle(
+                color: AppTheme.teal,
+                fontSize: 12,
+                fontWeight: FontWeight.bold),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${_currentIndex + 1} / ${widget.skills.length}',
-                style: const TextStyle(
-                    color: AppTheme.teal,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  skill.title,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              skill.title,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildSpeedBadge() {
     return GestureDetector(
-      onTap: () => _showSpeedPicker(),
+      onTap: _showSpeedPicker,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
@@ -306,7 +322,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Column(
         children: [
-          // シークバー
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: AppTheme.teal,
@@ -323,14 +338,13 @@ class RoutinePlayerState extends State<RoutinePlayer> {
                 final skill = widget.skills[_currentIndex];
                 final startMs = skill.startTimeMs ?? 0;
                 final endMs = skill.isClipped
-                    ? skill.endTimeMs!
+                    ? (skill.endTimeMs ?? _controller!.value.duration.inMilliseconds)
                     : _controller!.value.duration.inMilliseconds;
                 final seekMs = startMs + ((endMs - startMs) * v).round();
                 _controller!.seekTo(Duration(milliseconds: seekMs));
               },
             ),
           ),
-          // 時間表示＋コントロールボタン
           Row(
             children: [
               Text(
@@ -338,7 +352,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
                 style: const TextStyle(color: Colors.white54, fontSize: 10),
               ),
               const Spacer(),
-              // 前スキル
               IconButton(
                 icon: const Icon(Icons.skip_previous, color: Colors.white70),
                 iconSize: 28,
@@ -346,7 +359,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
                 constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                 onPressed: widget.skills.length > 1 ? _prevSkill : null,
               ),
-              // 再生/一時停止
               GestureDetector(
                 onTap: _togglePlay,
                 child: Container(
@@ -364,7 +376,6 @@ class RoutinePlayerState extends State<RoutinePlayer> {
                   ),
                 ),
               ),
-              // 次スキル
               IconButton(
                 icon: const Icon(Icons.skip_next, color: Colors.white70),
                 iconSize: 28,
@@ -511,14 +522,10 @@ class RoutinePlayerState extends State<RoutinePlayer> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppTheme.primaryPurple
-                          : AppTheme.cardDark,
+                      color: isSelected ? AppTheme.primaryPurple : AppTheme.cardDark,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: isSelected
-                            ? AppTheme.primaryPurple
-                            : AppTheme.divider,
+                        color: isSelected ? AppTheme.primaryPurple : AppTheme.divider,
                       ),
                     ),
                     child: Text(

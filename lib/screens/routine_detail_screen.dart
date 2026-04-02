@@ -1,6 +1,4 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -8,6 +6,7 @@ import '../models/routine.dart';
 import '../models/skill.dart';
 import '../providers/routine_provider.dart';
 import '../providers/skill_provider.dart';
+import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
 
 class RoutineDetailScreen extends StatefulWidget {
@@ -46,7 +45,9 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
   @override
   void dispose() {
-    _videoController?.dispose();
+    _videoController?.removeListener(_onVideoProgress);
+    VideoPlayerManager.instance.disposeCurrentController();
+    _videoController = null;
     _titleController.dispose();
     _notesController.dispose();
     _searchController.dispose();
@@ -57,8 +58,9 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
   // 動画ローダ
   // ─────────────────────────────────────────────
   Future<void> _loadVideo(Skill skill) async {
-    await _videoController?.pause();
-    await _videoController?.dispose();
+    // VideoPlayerManager経由で既存プレイヤーを停止・破棄（同時再生禁止）
+    _videoController?.removeListener(_onVideoProgress);
+    await VideoPlayerManager.instance.disposeCurrentController();
     _videoController = null;
 
     final path = skill.videoPath;
@@ -72,15 +74,14 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
     setState(() => _isPlayerLoading = true);
 
-    VideoPlayerController ctrl;
-    if (kIsWeb || path.startsWith('http')) {
-      ctrl = VideoPlayerController.networkUrl(Uri.parse(path));
-    } else {
-      ctrl = VideoPlayerController.file(File(path));
+    // VideoPlayerManager経由で新しいコントローラを生成
+    final ctrl = await VideoPlayerManager.instance.createController(path);
+    if (ctrl == null || !mounted) {
+      setState(() => _isPlayerLoading = false);
+      return;
     }
 
     try {
-      await ctrl.initialize();
       await ctrl.setLooping(false);
       await ctrl.setPlaybackSpeed(_playbackSpeed);
       ctrl.addListener(_onVideoProgress);
@@ -94,7 +95,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
         await ctrl.play();
       }
     } catch (_) {
-      await ctrl.dispose();
+      await VideoPlayerManager.instance.disposeCurrentController();
       setState(() {
         _videoController = null;
         _isPlayerLoading = false;
@@ -300,16 +301,24 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
       color: Colors.black,
       child: Column(
         children: [
-          // 動画エリア
-          AspectRatio(
-            aspectRatio: 16 / 9,
+          // 動画エリア（Aspect Fit: アスペクト比維持・縦動画対応）
+          Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.35,
+            ),
+            color: Colors.black,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // 映像 or プレースホルダー
+                // 映像 or プレースホルダー（Aspect Fit）
                 if (_videoController != null &&
                     _videoController!.value.isInitialized)
-                  VideoPlayer(_videoController!)
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: _videoController!.value.aspectRatio,
+                      child: VideoPlayer(_videoController!),
+                    ),
+                  )
                 else
                   Container(
                     color: const Color(0xFF0A0A14),
