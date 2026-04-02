@@ -22,7 +22,9 @@ workflows:
         script: flutter analyze --no-fatal-infos
       - name: Build iOS release
         script: |
-          flutter build ipa --release
+          flutter build ipa \
+            --release \
+            --export-options-plist=$CM_EXPORT_OPTIONS_PATH
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
