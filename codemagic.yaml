@@ -20,12 +20,10 @@ workflows:
           find . -name "Podfile" -execdir pod install \;
       - name: Set up keychain
         script: keychain initialize
-      - name: Add certificate to keychain
-        script: |
-          keychain add-certificates --certificate ios_distribution
-      - name: Use provisioning profile
-        script: |
-          xcode-project use-profiles --profile SkillLibrary_AppStore
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+      - name: Use provisioning profiles
+        script: xcode-project use-profiles
       - name: Flutter analyze
         script: flutter analyze --no-fatal-infos
       - name: Build iOS release
