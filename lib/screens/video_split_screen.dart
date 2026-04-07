@@ -10,9 +10,10 @@ import '../providers/skill_provider.dart';
 import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
 
-/// 動画分割スキル登録画面
-/// - 再生 → 一時停止した位置で「ここで分割」→ 保存
-/// - 複数の分割ポイントを追加可能
+/// 動画分割スキル登録画面（開始/終了2ボタン方式）
+/// - 動画を再生し「開始」でstartTime、「終了」でendTimeを記録
+/// - バリデーション: 終了 > 開始、両方設定必須
+/// - 保存: startTime〜endTimeのクリップをスキルとして登録
 class VideoSplitScreen extends StatefulWidget {
   final String? sourceVideoPath;
   final String? sourceSkillId;
@@ -36,8 +37,9 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
   bool _isFullscreen = false;
   String? _videoPath;
 
-  // 分割ポイントリスト（ミリ秒）
-  final List<int> _splitPoints = [];
+  // 開始・終了時刻（ミリ秒）
+  int? _startTimeMs;
+  int? _endTimeMs;
 
   // 保存済みスキルリスト
   final List<_SavedClipRecord> _savedClips = [];
@@ -104,7 +106,8 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
       _isInitialized = true;
       _isLoading = false;
       _isPlaying = false;
-      _splitPoints.clear();
+      _startTimeMs = null;
+      _endTimeMs = null;
       _savedClips.clear();
     });
   }
@@ -128,142 +131,128 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
   }
 
   // ─────────────────────────────────────────────
-  // 分割ポイント追加
+  // 開始・終了マーク
   // ─────────────────────────────────────────────
-  void _addSplitPoint() {
+
+  /// 「開始」ボタン: 現在位置をstartTimeとして記録
+  void _markStart() {
     if (_controller == null || !_isInitialized) return;
     final posMs = _controller!.value.position.inMilliseconds;
-    // 重複チェック（前後100ms以内は同一扱い）
-    final isDuplicate = _splitPoints.any((p) => (p - posMs).abs() < 100);
-    if (isDuplicate) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('この位置には既に分割ポイントがあります'),
-          backgroundColor: AppTheme.primaryPurple,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    setState(() {
+      _startTimeMs = posMs;
+      // 開始を変更した場合、終了をリセット
+      if (_endTimeMs != null && _endTimeMs! <= posMs) {
+        _endTimeMs = null;
+      }
+    });
+    _showSnack('開始位置を設定: ${_formatMs(posMs)}', AppTheme.teal);
+  }
+
+  /// 「終了」ボタン: 現在位置をendTimeとして記録（バリデーション付き）
+  void _markEnd() {
+    if (_controller == null || !_isInitialized) return;
+
+    // バリデーション①: 開始位置が未設定
+    if (_startTimeMs == null) {
+      _showSnack('先に開始位置を設定してください', AppTheme.errorRed);
       return;
     }
-    setState(() {
-      _splitPoints.add(posMs);
-      _splitPoints.sort(); // 昇順ソート
-    });
+
+    final posMs = _controller!.value.position.inMilliseconds;
+
+    // バリデーション②: 終了 ≤ 開始
+    if (posMs <= _startTimeMs!) {
+      _showSnack('終了位置は開始より後に設定してください', AppTheme.errorRed);
+      return;
+    }
+
+    // バリデーション③: 開始 == 終了（差が200ms未満）
+    if (posMs - _startTimeMs! < 200) {
+      _showSnack('開始と終了の間隔を200ms以上にしてください', AppTheme.errorRed);
+      return;
+    }
+
+    setState(() => _endTimeMs = posMs);
+    _showSnack('終了位置を設定: ${_formatMs(posMs)}', AppTheme.primaryPurple);
+  }
+
+  void _showSnack(String message, Color color) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('分割ポイントを追加: ${_formatMs(posMs)}'),
-        backgroundColor: AppTheme.teal,
+        content: Text(message),
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 1200),
+        duration: const Duration(milliseconds: 1500),
       ),
     );
   }
 
-  void _removeSplitPoint(int index) {
-    setState(() => _splitPoints.removeAt(index));
-  }
-
-  Future<void> _seekToPoint(int ms) async {
-    await _controller?.seekTo(Duration(milliseconds: ms));
-    setState(() {});
-  }
-
   // ─────────────────────────────────────────────
-  // 保存（分割して各セクションをスキルとして登録）
+  // 保存（startTime〜endTimeをスキルとして登録）
   // ─────────────────────────────────────────────
-  Future<void> _saveAll() async {
+  Future<void> _saveClip() async {
     if (_videoPath == null || _controller == null) return;
-    if (_splitPoints.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('分割ポイントを追加してください'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
+
+    // 最終バリデーション
+    if (_startTimeMs == null) {
+      _showSnack('開始位置を設定してください', AppTheme.errorRed);
+      return;
+    }
+    if (_endTimeMs == null) {
+      _showSnack('終了位置を設定してください', AppTheme.errorRed);
       return;
     }
 
-    final totalMs = _controller!.value.duration.inMilliseconds;
-
-    // セクションを生成（0→pt1, pt1→pt2, ..., ptN→end）
-    final boundaries = [0, ..._splitPoints, totalMs];
-    final sections = <Map<String, int>>[];
-    for (int i = 0; i < boundaries.length - 1; i++) {
-      final start = boundaries[i];
-      final end = boundaries[i + 1];
-      if (end - start > 200) {
-        // 200ms以上のセクションのみ有効
-        sections.add({'start': start, 'end': end});
-      }
-    }
-
-    if (sections.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('有効なセクションがありません'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
-      return;
-    }
-
-    // 一括登録ダイアログ
-    final results = await showModalBottomSheet<List<Map<String, dynamic>>?>(
+    // タイトル入力ダイアログ
+    final result = await showModalBottomSheet<Map<String, dynamic>?>(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppTheme.surfaceDark,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => _BulkSaveSheet(sections: sections),
+      builder: (ctx) => _SaveClipSheet(
+        startMs: _startTimeMs!,
+        endMs: _endTimeMs!,
+      ),
     );
 
-    if (results == null || results.isEmpty) return;
+    if (result == null || result.isEmpty) return;
     if (!mounted) return;
 
+    final title = result['title'] as String? ?? '';
+    if (title.isEmpty) return;
+
     final provider = context.read<SkillProvider>();
-    int savedCount = 0;
+    final skill = Skill(
+      id: const Uuid().v4(),
+      title: title,
+      videoPath: _videoPath,
+      category: result['category'] as String?,
+      tags: (result['tags'] as List<String>?) ?? [],
+      difficulty: result['difficulty'] as int? ?? 1,
+      notes: result['notes'] as String?,
+      startTimeMs: _startTimeMs,
+      endTimeMs: _endTimeMs,
+      sourceVideoId: widget.sourceSkillId,
+      createdAt: DateTime.now(),
+    );
+    await provider.addSkill(skill);
 
-    for (int i = 0; i < results.length; i++) {
-      final r = results[i];
-      final title = r['title'] as String?;
-      if (title == null || title.isEmpty) continue;
-
-      final section = sections[i];
-      final skill = Skill(
-        id: const Uuid().v4(),
-        title: title,
-        videoPath: _videoPath,
-        category: r['category'] as String?,
-        tags: (r['tags'] as List<String>?) ?? [],
-        difficulty: r['difficulty'] as int? ?? 1,
-        notes: r['notes'] as String?,
-        startTimeMs: section['start'],
-        endTimeMs: section['end'],
-        sourceVideoId: widget.sourceSkillId,
-        createdAt: DateTime.now(),
-      );
-      await provider.addSkill(skill);
-      _savedClips.add(_SavedClipRecord(
-        title: skill.title,
-        startMs: section['start']!,
-        endMs: section['end']!,
-      ));
-      savedCount++;
-    }
+    _savedClips.add(_SavedClipRecord(
+      title: skill.title,
+      startMs: _startTimeMs!,
+      endMs: _endTimeMs!,
+    ));
 
     setState(() {
-      _splitPoints.clear();
+      _startTimeMs = null;
+      _endTimeMs = null;
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$savedCount件のスキルを登録しました'),
-          backgroundColor: AppTheme.successGreen,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack('「$title」を登録しました', AppTheme.successGreen);
     }
   }
 
@@ -433,7 +422,7 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
   }
 
   // ─────────────────────────────────────────────
-  // 動画エリア（アスペクト比維持・縦中央・圧縮禁止）
+  // 動画エリア
   // ─────────────────────────────────────────────
   Widget _buildVideoArea() {
     final ctrl = _controller;
@@ -444,7 +433,6 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
         children: [
           // 動画本体
           if (ctrl != null && ctrl.value.isInitialized)
-            // アスペクト比を維持しつつ横幅にフィット・縦中央
             Center(
               child: AspectRatio(
                 aspectRatio: ctrl.value.aspectRatio,
@@ -490,23 +478,44 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
                 ),
               ),
             ),
-          // 分割ポイント数バッジ（左上）
-          if (_splitPoints.isNotEmpty)
+          // 開始・終了マーカー表示（左上）
+          if (_startTimeMs != null || _endTimeMs != null)
             Positioned(
               top: 12,
               left: 12,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppTheme.teal.withValues(alpha: 0.85),
+                  color: Colors.black.withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  '分割ポイント: ${_splitPoints.length}',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_startTimeMs != null) ...[
+                      const Icon(Icons.play_arrow, color: AppTheme.teal, size: 12),
+                      Text(
+                        _formatMs(_startTimeMs!),
+                        style: const TextStyle(
+                            color: AppTheme.teal,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                    if (_startTimeMs != null && _endTimeMs != null)
+                      const Text(' → ',
+                          style: TextStyle(color: Colors.white38, fontSize: 11)),
+                    if (_endTimeMs != null) ...[
+                      const Icon(Icons.stop, color: AppTheme.primaryPurple, size: 12),
+                      Text(
+                        _formatMs(_endTimeMs!),
+                        style: const TextStyle(
+                            color: AppTheme.primaryPurple,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -599,33 +608,73 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
 
                     const SizedBox(height: 8),
 
-                    // ── ここで分割ボタン ──
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: ctrl != null ? _addSplitPoint : null,
-                        icon: const Icon(Icons.content_cut, size: 18),
-                        label: const Text(
-                          'ここで分割',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryPurple,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                    // ── 開始・終了ボタン（横並び）──
+                    Row(
+                      children: [
+                        // 開始ボタン
+                        Expanded(
+                          child: _buildMarkerButton(
+                            label: '開始',
+                            icon: Icons.play_arrow,
+                            color: AppTheme.teal,
+                            isSet: _startTimeMs != null,
+                            timeMs: _startTimeMs,
+                            onTap: ctrl != null ? _markStart : null,
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        // 終了ボタン
+                        Expanded(
+                          child: _buildMarkerButton(
+                            label: '終了',
+                            icon: Icons.stop,
+                            color: AppTheme.primaryPurple,
+                            isSet: _endTimeMs != null,
+                            timeMs: _endTimeMs,
+                            onTap: ctrl != null ? _markEnd : null,
+                          ),
+                        ),
+                      ],
                     ),
 
-                    // ── 分割ポイントリスト（最大3件を表示） ──
-                    if (_splitPoints.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _buildSplitPointList(),
-                    ],
+                    const SizedBox(height: 8),
+
+                    // ── セグメント長 ──
+                    if (_startTimeMs != null && _endTimeMs != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppTheme.successGreen.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: AppTheme.successGreen.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.timer,
+                                    color: AppTheme.successGreen, size: 14),
+                                const SizedBox(width: 4),
+                                const Text('セグメント長',
+                                    style: TextStyle(
+                                        color: AppTheme.textSecondary,
+                                        fontSize: 11)),
+                              ],
+                            ),
+                            Text(
+                              _formatMs(_endTimeMs! - _startTimeMs!),
+                              style: const TextStyle(
+                                color: AppTheme.successGreen,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
                     const SizedBox(height: 8),
 
@@ -633,19 +682,22 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _splitPoints.isNotEmpty ? _saveAll : null,
+                        onPressed: (_startTimeMs != null && _endTimeMs != null)
+                            ? _saveClip
+                            : null,
                         icon: const Icon(Icons.save_alt, size: 18),
                         label: Text(
-                          _splitPoints.isNotEmpty
-                              ? '保存 (${_splitPoints.length + 1}セクション → スキル登録)'
-                              : '分割ポイントを追加してください',
+                          (_startTimeMs != null && _endTimeMs != null)
+                              ? 'スキルとして登録する'
+                              : '開始・終了を設定してください',
                           style: const TextStyle(
                               fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _splitPoints.isNotEmpty
-                              ? AppTheme.successGreen
-                              : AppTheme.divider,
+                          backgroundColor:
+                              (_startTimeMs != null && _endTimeMs != null)
+                                  ? AppTheme.successGreen
+                                  : AppTheme.divider,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
@@ -666,6 +718,74 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 開始/終了マーカーボタン
+  Widget _buildMarkerButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required bool isSet,
+    required int? timeMs,
+    required VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSet
+              ? color.withValues(alpha: 0.15)
+              : AppTheme.cardDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSet
+                ? color.withValues(alpha: 0.6)
+                : AppTheme.divider,
+            width: isSet ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: isSet ? color : AppTheme.textSecondary, size: 18),
+            const SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: isSet ? color : AppTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (isSet && timeMs != null)
+                  Text(
+                    _formatMs(timeMs),
+                    style: TextStyle(
+                      color: color.withValues(alpha: 0.8),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  )
+                else
+                  Text(
+                    '未設定',
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -696,69 +816,6 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
           setState(() {});
         },
       ),
-    );
-  }
-
-  Widget _buildSplitPointList() {
-    final showCount = _splitPoints.length > 3 ? 3 : _splitPoints.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.cut, color: AppTheme.textTertiary, size: 13),
-            const SizedBox(width: 4),
-            Text(
-              '分割ポイント (${_splitPoints.length}件)',
-              style: const TextStyle(
-                  color: AppTheme.textTertiary, fontSize: 11),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ...List.generate(showCount, (i) {
-          final pt = _splitPoints[i];
-          return Container(
-            margin: const EdgeInsets.only(bottom: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryPurple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                  color: AppTheme.primaryPurple.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.content_cut,
-                    color: AppTheme.primaryPurple, size: 13),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: () => _seekToPoint(pt),
-                  child: Text(
-                    _formatMs(pt),
-                    style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () => _removeSplitPoint(i),
-                  child: const Icon(Icons.close,
-                      color: AppTheme.textTertiary, size: 16),
-                ),
-              ],
-            ),
-          );
-        }),
-        if (_splitPoints.length > 3)
-          Text(
-            '  ...他${_splitPoints.length - 3}件',
-            style: const TextStyle(
-                color: AppTheme.textTertiary, fontSize: 10),
-          ),
-      ],
     );
   }
 
@@ -844,7 +901,7 @@ class _VideoSplitScreenState extends State<VideoSplitScreen>
           ),
           const SizedBox(height: 8),
           const Text(
-            '動画を再生し、分割したい位置で\n「ここで分割」をタップして\n自動的にスキルとして登録します',
+            '動画を読み込み\n「開始」「終了」で区間を指定して\nスキルとして登録します',
             textAlign: TextAlign.center,
             style:
                 TextStyle(color: AppTheme.textSecondary, fontSize: 14, height: 1.6),
@@ -905,35 +962,24 @@ class _SavedClipRecord {
 }
 
 // ────────────────────────────────────────────────
-// 一括保存BottomSheet
+// クリップ保存BottomSheet（タイトル入力）
 // ────────────────────────────────────────────────
-class _BulkSaveSheet extends StatefulWidget {
-  final List<Map<String, int>> sections;
-  const _BulkSaveSheet({required this.sections});
+class _SaveClipSheet extends StatefulWidget {
+  final int startMs;
+  final int endMs;
+  const _SaveClipSheet({required this.startMs, required this.endMs});
 
   @override
-  State<_BulkSaveSheet> createState() => _BulkSaveSheetState();
+  State<_SaveClipSheet> createState() => _SaveClipSheetState();
 }
 
-class _BulkSaveSheetState extends State<_BulkSaveSheet> {
-  late List<TextEditingController> _titleControllers;
-  late List<int> _difficulties;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleControllers = List.generate(
-      widget.sections.length,
-      (i) => TextEditingController(text: 'スキル ${i + 1}'),
-    );
-    _difficulties = List.filled(widget.sections.length, 1);
-  }
+class _SaveClipSheetState extends State<_SaveClipSheet> {
+  final _titleController = TextEditingController(text: 'スキル 1');
+  int _difficulty = 1;
 
   @override
   void dispose() {
-    for (final c in _titleControllers) {
-      c.dispose();
-    }
+    _titleController.dispose();
     super.dispose();
   }
 
@@ -946,187 +992,132 @@ class _BulkSaveSheetState extends State<_BulkSaveSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final durationMs = widget.endMs - widget.startMs;
     return Padding(
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, scroll) => Column(
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Column(
+            // ハンドル
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'スキルとして登録',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // 区間情報
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.cardDark,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.divider,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                  const Icon(Icons.timer, color: AppTheme.teal, size: 14),
+                  const SizedBox(width: 6),
                   Text(
-                    '${widget.sections.length}件のスキルとして登録',
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    '${_formatMs(widget.startMs)} ～ ${_formatMs(widget.endMs)}',
+                    style: const TextStyle(color: AppTheme.teal, fontSize: 13),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '各セクションのタイトルを入力してください',
-                    style: TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13),
+                  const Spacer(),
+                  Text(
+                    _formatMs(durationMs),
+                    style: const TextStyle(
+                        color: AppTheme.textTertiary, fontSize: 11),
                   ),
                 ],
               ),
             ),
-            const Divider(color: AppTheme.divider),
-            Expanded(
-              child: ListView.builder(
-                controller: scroll,
-                padding: const EdgeInsets.all(16),
-                itemCount: widget.sections.length,
-                itemBuilder: (context, i) {
-                  final s = widget.sections[i];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppTheme.cardDark,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.divider),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // セクション情報
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    AppTheme.primaryPurple,
-                                    AppTheme.teal
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '${i + 1}',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${_formatMs(s['start']!)} ～ ${_formatMs(s['end']!)}',
-                              style: const TextStyle(
-                                  color: AppTheme.teal, fontSize: 13),
-                            ),
-                            const Spacer(),
-                            Text(
-                              _formatMs(s['end']! - s['start']!),
-                              style: const TextStyle(
-                                  color: AppTheme.textTertiary,
-                                  fontSize: 11),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        // タイトル入力
-                        TextField(
-                          controller: _titleControllers[i],
-                          decoration: InputDecoration(
-                            labelText: 'タイトル',
-                            hintText: 'スキル ${i + 1}',
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // 難易度
-                        Row(
-                          children: [
-                            const Text('難易度: ',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 12)),
-                            ...List.generate(5, (star) {
-                              return GestureDetector(
-                                onTap: () => setState(
-                                    () => _difficulties[i] = star + 1),
-                                child: Icon(
-                                  (star + 1) <= _difficulties[i]
-                                      ? Icons.star
-                                      : Icons.star_border,
-                                  color: (star + 1) <= _difficulties[i]
-                                      ? AppTheme.accentGold
-                                      : AppTheme.textTertiary,
-                                  size: 22,
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
-                      ],
+            const SizedBox(height: 16),
+            // タイトル入力
+            TextField(
+              controller: _titleController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'スキルタイトル',
+                hintText: 'スキル名を入力',
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // 難易度
+            Row(
+              children: [
+                const Text('難易度: ',
+                    style: TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 12)),
+                ...List.generate(5, (star) {
+                  return GestureDetector(
+                    onTap: () => setState(() => _difficulty = star + 1),
+                    child: Icon(
+                      (star + 1) <= _difficulty ? Icons.star : Icons.star_border,
+                      color: (star + 1) <= _difficulty
+                          ? AppTheme.accentGold
+                          : AppTheme.textTertiary,
+                      size: 22,
                     ),
                   );
+                }),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // 登録ボタン
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  final title = _titleController.text.trim();
+                  if (title.isEmpty) return;
+                  Navigator.pop(context, {
+                    'title': title,
+                    'difficulty': _difficulty,
+                    'category': null,
+                    'tags': <String>[],
+                    'notes': null,
+                  });
                 },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.successGreen,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'スキルを登録する',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final results = List.generate(
-                          widget.sections.length,
-                          (i) => {
-                            'title': _titleControllers[i].text.trim(),
-                            'difficulty': _difficulties[i],
-                            'category': null,
-                            'tags': <String>[],
-                            'notes': null,
-                          },
-                        );
-                        Navigator.pop(context, results);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.successGreen,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'スキルを登録する',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, null),
-                    child: const Text('キャンセル',
-                        style:
-                            TextStyle(color: AppTheme.textTertiary)),
-                  ),
-                ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context, null),
+                child: const Text('キャンセル',
+                    style: TextStyle(color: AppTheme.textTertiary)),
               ),
             ),
           ],

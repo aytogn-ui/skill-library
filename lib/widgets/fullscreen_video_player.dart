@@ -6,9 +6,11 @@ import '../theme/app_theme.dart';
 /// 全画面動画再生ページ
 /// - 再生中のプレイヤーを引き継ぎ（同一コントローラを使用）
 /// - 全画面: 動画・再生ボタン・全画面終了ボタンのみ表示
-/// - ナビゲーション/リスト/その他ボタンは非表示
-/// - 回転: 全画面中のみランドスケープ許可
-/// - 離脱時: ポートレートに戻す
+/// - 回転: 動画アスペクト比に応じて自動判定
+///   - 横動画(16:9等): ランドスケープ
+///   - 縦動画(9:16等): ポートレート
+/// - デバイス回転追従: 全画面中はAutoRotate許可
+/// - 離脱時: 復帰して元の画面へ（再生位置保持）
 class FullscreenVideoPage extends StatefulWidget {
   final VideoPlayerController controller;
   final bool isPlaying;
@@ -27,18 +29,21 @@ class FullscreenVideoPage extends StatefulWidget {
   State<FullscreenVideoPage> createState() => _FullscreenVideoPageState();
 }
 
-class _FullscreenVideoPageState extends State<FullscreenVideoPage> {
+class _FullscreenVideoPageState extends State<FullscreenVideoPage>
+    with WidgetsBindingObserver {
   bool _showControls = true;
+
+  /// 動画が縦向き(portrait)かどうか
+  bool get _isPortraitVideo {
+    final ar = widget.controller.value.aspectRatio;
+    return ar < 1.0; // aspectRatio < 1 → 縦動画
+  }
 
   @override
   void initState() {
     super.initState();
-    // 全画面モード開始: ランドスケープ + UI非表示
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    WidgetsBinding.instance.addObserver(this);
+    _applyFullscreenOrientation();
     widget.controller.addListener(_onProgress);
 
     // 3秒後にコントロールを非表示
@@ -47,8 +52,27 @@ class _FullscreenVideoPageState extends State<FullscreenVideoPage> {
     });
   }
 
+  /// 動画アスペクト比に応じた向きを設定
+  void _applyFullscreenOrientation() {
+    if (_isPortraitVideo) {
+      // 縦動画: ポートレートのまま全画面
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    } else {
+      // 横動画: ランドスケープ全画面
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_onProgress);
     // ポートレートに戻す
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

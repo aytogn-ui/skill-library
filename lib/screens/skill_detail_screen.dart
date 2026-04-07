@@ -7,7 +7,6 @@ import '../models/skill.dart';
 import '../providers/skill_provider.dart';
 import '../services/video_player_manager.dart';
 import '../theme/app_theme.dart';
-import '../widgets/mastery_slider.dart';
 import '../widgets/fullscreen_video_player.dart';
 import '../widgets/skill_success_rate_widget.dart';
 import 'add_edit_skill_screen.dart';
@@ -158,12 +157,8 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
                 children: [
                   _buildTitleSection(skill),
                   const SizedBox(height: 16),
-                  _buildMasterySection(skill, provider),
-                  const SizedBox(height: 16),
-                  // 直近100/50/30回の成功率
+                  // 習得度 + 直近成功率統合表示
                   SkillSuccessRateWidget(skillId: widget.skillId),
-                  const SizedBox(height: 16),
-                  _buildSuccessSection(skill, provider),
                   const SizedBox(height: 16),
                   if (skill.tags.isNotEmpty) ...[
                     _buildTagsSection(skill),
@@ -410,167 +405,7 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
     );
   }
 
-  Widget _buildMasterySection(Skill skill, SkillProvider provider) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.cardDark,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: MasterySlider(
-        mastery: skill.mastery,
-        onChanged: (value) {
-          provider.updateSkill(skill.copyWith(mastery: value));
-        },
-      ),
-    );
-  }
-
-  Widget _buildSuccessSection(Skill skill, SkillProvider provider) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.cardDark,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '成功・失敗カウント',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildCountCard(
-                  label: '成功',
-                  count: skill.successCount,
-                  color: AppTheme.successGreen,
-                  icon: Icons.check_circle_outline,
-                  onIncrement: () => provider.updateSkill(
-                      skill.copyWith(successCount: skill.successCount + 1)),
-                  onDecrement: skill.successCount > 0
-                      ? () => provider.updateSkill(
-                          skill.copyWith(successCount: skill.successCount - 1))
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildCountCard(
-                  label: '失敗',
-                  count: skill.failCount,
-                  color: AppTheme.errorRed,
-                  icon: Icons.cancel_outlined,
-                  onIncrement: () => provider.updateSkill(
-                      skill.copyWith(failCount: skill.failCount + 1)),
-                  onDecrement: skill.failCount > 0
-                      ? () => provider.updateSkill(
-                          skill.copyWith(failCount: skill.failCount - 1))
-                      : null,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.backgroundDark,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('成功率',
-                    style: TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13)),
-                Text(
-                  skill.successRateText,
-                  style: TextStyle(
-                    color: _getSuccessRateColor(skill.successRate),
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCountCard({
-    required String label,
-    required int count,
-    required Color color,
-    required IconData icon,
-    required VoidCallback onIncrement,
-    VoidCallback? onDecrement,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: color, fontSize: 12)),
-          const SizedBox(height: 8),
-          Text(
-            count.toString(),
-            style: TextStyle(
-                color: color, fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              GestureDetector(
-                onTap: onDecrement,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: onDecrement != null
-                        ? color.withValues(alpha: 0.2)
-                        : Colors.transparent,
-                  ),
-                  child: Icon(
-                    Icons.remove,
-                    color: onDecrement != null ? color : AppTheme.textTertiary,
-                    size: 16,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: onIncrement,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color.withValues(alpha: 0.2),
-                  ),
-                  child: Icon(Icons.add, color: color, size: 16),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  // _buildMasterySection と _buildSuccessSection は SkillSuccessRateWidget に統合済みのため削除
 
   Widget _buildTagsSection(Skill skill) {
     return Wrap(
@@ -643,14 +478,6 @@ class _SkillDetailScreenState extends State<SkillDetailScreen>
 
   String _formatDate(DateTime date) {
     return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} 登録';
-  }
-
-  Color _getSuccessRateColor(double rate) {
-    if (rate >= 0.8) return AppTheme.successGreen;
-    if (rate >= 0.6) return AppTheme.teal;
-    if (rate >= 0.4) return AppTheme.primaryPurple;
-    if (rate > 0) return const Color(0xFFFF9800);
-    return AppTheme.textTertiary;
   }
 
   void _confirmDelete(
