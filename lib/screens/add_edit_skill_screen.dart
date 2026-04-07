@@ -155,6 +155,9 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              // 成功数・失敗数
+              _buildCountSection(),
+              const SizedBox(height: 16),
               // タグ
               _buildTagSection(),
               const SizedBox(height: 16),
@@ -402,6 +405,233 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
     );
   }
 
+  /// 成功数・失敗数の編集セクション
+  Widget _buildCountSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '成功数 / 失敗数',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '過去の記録を手動で修正できます',
+            style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              // ── 成功数 ──────────────────────────────────
+              Expanded(
+                child: _buildCountTile(
+                  label: '成功数',
+                  value: _successCount,
+                  color: AppTheme.successGreen,
+                  icon: Icons.check_circle_outline,
+                  onDecrement: () {
+                    if (_successCount > 0) {
+                      setState(() => _successCount--);
+                    }
+                  },
+                  onIncrement: () => setState(() => _successCount++),
+                  onEdit: () => _showCountEditDialog(
+                    title: '成功数を入力',
+                    current: _successCount,
+                    onSave: (v) => setState(() => _successCount = v),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // ── 失敗数 ──────────────────────────────────
+              Expanded(
+                child: _buildCountTile(
+                  label: '失敗数',
+                  value: _failCount,
+                  color: AppTheme.errorRed,
+                  icon: Icons.cancel_outlined,
+                  onDecrement: () {
+                    if (_failCount > 0) {
+                      setState(() => _failCount--);
+                    }
+                  },
+                  onIncrement: () => setState(() => _failCount++),
+                  onEdit: () => _showCountEditDialog(
+                    title: '失敗数を入力',
+                    current: _failCount,
+                    onSave: (v) => setState(() => _failCount = v),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // 試行回数・成功率サマリ
+          if (_successCount + _failCount > 0) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundDark,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '試行回数: ${_successCount + _failCount}',
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    '成功率: ${(_successCount / (_successCount + _failCount) * 100).toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      color: _successCount / (_successCount + _failCount) >= 0.9
+                          ? AppTheme.successGreen
+                          : _successCount / (_successCount + _failCount) >= 0.7
+                              ? AppTheme.accentGold
+                              : AppTheme.errorRed,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCountTile({
+    required String label,
+    required int value,
+    required Color color,
+    required IconData icon,
+    required VoidCallback onDecrement,
+    required VoidCallback onIncrement,
+    required VoidCallback onEdit,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 15),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(color: color, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // 数値（タップでダイアログ編集）
+          GestureDetector(
+            onTap: onEdit,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                value.toString(),
+                style: TextStyle(
+                  color: color,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // +/- ボタン
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _CountButton(
+                icon: Icons.remove,
+                color: color,
+                onTap: onDecrement,
+                enabled: value > 0,
+              ),
+              _CountButton(
+                icon: Icons.add,
+                color: color,
+                onTap: onIncrement,
+                enabled: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCountEditDialog({
+    required String title,
+    required int current,
+    required ValueChanged<int> onSave,
+  }) {
+    final controller = TextEditingController(text: current.toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 20),
+          decoration: InputDecoration(
+            hintText: '0以上の整数',
+            hintStyle: const TextStyle(color: AppTheme.textTertiary),
+            suffixText: '回',
+            suffixStyle: const TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('キャンセル',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              final parsed = int.tryParse(controller.text.trim());
+              if (parsed != null && parsed >= 0) {
+                onSave(parsed);
+                Navigator.pop(ctx);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('0以上の整数を入力してください')),
+                );
+              }
+            },
+            child: const Text('OK', style: TextStyle(color: AppTheme.teal)),
+          ),
+        ],
+      ),
+    ).then((_) => controller.dispose());
+  }
+
   Widget _buildTagSection() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -639,5 +869,47 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 成功数・失敗数の +/- ボタン
+// ─────────────────────────────────────────────────────────────────────────────
+class _CountButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  const _CountButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: enabled
+              ? color.withValues(alpha: 0.18)
+              : AppTheme.divider.withValues(alpha: 0.3),
+          border: Border.all(
+            color: enabled ? color.withValues(alpha: 0.5) : Colors.transparent,
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: enabled ? color : AppTheme.textTertiary,
+        ),
+      ),
+    );
   }
 }
