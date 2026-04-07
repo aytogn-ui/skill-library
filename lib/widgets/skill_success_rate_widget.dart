@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/skill.dart';
 import '../providers/skill_attempt_provider.dart';
+import '../providers/skill_provider.dart';
 import '../theme/app_theme.dart';
 
 /// スキル習得度ウィジェット（統合表示版）
-/// - 習得度 = 選択した直近N回の成功率
+///
+/// 計算ロジック:
+///   合算試技 = SkillAttempt ログ + Skill.successCount + Skill.failCount
+///   直近 N 回の成功率を習得度として表示
+///
 /// - ウィンドウ切替: [100回] [50回] [30回]（デフォルト50回）
 /// - 試技数不足の場合は「試技数不足」を表示
 /// - 色分け: >90% 緑 / 70-89% 黄 / ≤69% 赤
+/// - 総試技数バッジ: 合計 / うちログN回 / 成功M・失敗K を内訳表示
 class SkillSuccessRateWidget extends StatefulWidget {
   final String skillId;
 
@@ -24,9 +31,20 @@ class _SkillSuccessRateWidgetState extends State<SkillSuccessRateWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<SkillAttemptProvider>(
-      builder: (context, provider, _) {
-        final result = provider.calculateRate(widget.skillId, _selectedWindow);
+    return Consumer2<SkillAttemptProvider, SkillProvider>(
+      builder: (context, attemptProvider, skillProvider, _) {
+        // Skill モデルから手動入力の成功数・失敗数を取得
+        final skill = skillProvider.getSkillById(widget.skillId);
+        final manualSuccess = skill?.successCount ?? 0;
+        final manualFail = skill?.failCount ?? 0;
+
+        final result = attemptProvider.calculateRate(
+          widget.skillId,
+          _selectedWindow,
+          manualSuccess: manualSuccess,
+          manualFail: manualFail,
+        );
+
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -59,7 +77,7 @@ class _SkillSuccessRateWidgetState extends State<SkillSuccessRateWidget> {
               const SizedBox(height: 14),
 
               // メイン表示エリア（閲覧専用）
-              _buildRateDisplay(result),
+              _buildRateDisplay(result, skill),
             ],
           ),
         );
@@ -111,7 +129,7 @@ class _SkillSuccessRateWidgetState extends State<SkillSuccessRateWidget> {
   }
 
   /// 成功率メイン表示（閲覧専用）
-  Widget _buildRateDisplay(SuccessRateResult result) {
+  Widget _buildRateDisplay(SuccessRateResult result, Skill? skill) {
     final hasData = result.hasData;
     final rate = result.rate;
     final color = hasData
@@ -119,6 +137,7 @@ class _SkillSuccessRateWidgetState extends State<SkillSuccessRateWidget> {
         : AppTheme.textTertiary;
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 大きな成功率表示
         Expanded(
@@ -200,40 +219,100 @@ class _SkillSuccessRateWidgetState extends State<SkillSuccessRateWidget> {
           ),
         ),
         const SizedBox(width: 12),
-        // 右側: 総試技数バッジ
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.backgroundDark,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.divider),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '${result.totalAttempts}',
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Text(
-                    '総試技数',
-                    style: TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 9,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        // 右側: 総試技数バッジ（内訳つき）
+        _buildTotalBadge(result, skill),
       ],
+    );
+  }
+
+  /// 総試技数バッジ（合計 + 内訳）
+  Widget _buildTotalBadge(SuccessRateResult result, Skill? skill) {
+    final logCount = result.logAttempts;
+    final manualSuccess = result.manualSuccess;
+    final manualFail = result.manualFail;
+    final manualTotal = manualSuccess + manualFail;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundDark,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // 合計試技数（大）
+          Text(
+            '${result.totalAttempts}',
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Text(
+            '総試技数',
+            style: TextStyle(color: AppTheme.textTertiary, fontSize: 9),
+          ),
+          // 内訳区切り線
+          if (logCount > 0 || manualTotal > 0) ...[
+            const SizedBox(height: 6),
+            Container(height: 1, color: AppTheme.divider, width: 60),
+            const SizedBox(height: 6),
+          ],
+          // ログ（SkillAttempt）分
+          if (logCount > 0)
+            _buildBadgeRow(
+              icon: Icons.history,
+              label: 'ログ',
+              value: logCount,
+              color: AppTheme.teal,
+            ),
+          // 手動入力: 成功数
+          if (manualSuccess > 0)
+            _buildBadgeRow(
+              icon: Icons.check_circle_outline,
+              label: '成功',
+              value: manualSuccess,
+              color: AppTheme.successGreen,
+            ),
+          // 手動入力: 失敗数
+          if (manualFail > 0)
+            _buildBadgeRow(
+              icon: Icons.cancel_outlined,
+              label: '失敗',
+              value: manualFail,
+              color: AppTheme.errorRed,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadgeRow({
+    required IconData icon,
+    required String label,
+    required int value,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: color),
+          const SizedBox(width: 3),
+          Text(
+            '$label $value',
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

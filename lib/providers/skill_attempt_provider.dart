@@ -6,6 +6,7 @@ import '../models/skill_attempt.dart';
 /// スキル試技履歴の管理プロバイダー
 /// - 試技の追加（成功/失敗）
 /// - 直近 100/50/30 回の成功率計算
+/// - Skill.successCount / failCount（手動入力）を合算して表示
 class SkillAttemptProvider extends ChangeNotifier {
   late Box<SkillAttempt> _box;
 
@@ -40,43 +41,85 @@ class SkillAttemptProvider extends ChangeNotifier {
   }
 
   /// 直近N回の成功率を計算
-  /// - 試技数がN未満の場合は null を返す（不足数も返す）
-  SuccessRateResult calculateRate(String skillId, int windowSize) {
+  ///
+  /// [manualSuccess] / [manualFail]: Skill.successCount / failCount（編集画面の手動入力値）
+  /// これらを仮想の「古い試技」として末尾に追加し、SkillAttempt の試技ログと合算する。
+  /// 合算後の合計試技数が windowSize 未満の場合は null を返す。
+  SuccessRateResult calculateRate(
+    String skillId,
+    int windowSize, {
+    int manualSuccess = 0,
+    int manualFail = 0,
+  }) {
+    // ① SkillAttempt ログ（新しい順）
     final attempts = getAttempts(skillId);
-    if (attempts.isEmpty) {
+
+    // ② 手動入力分を仮想試技リストに変換（成功 → true、失敗 → false）
+    final manualSuccessList = List.filled(manualSuccess, true);
+    final manualFailList = List.filled(manualFail, false);
+    // 手動入力は「古い記録」扱いなので末尾に結合
+    final combined = [
+      ...attempts.map((a) => a.isSuccess),
+      ...manualSuccessList,
+      ...manualFailList,
+    ];
+
+    final totalCombined = combined.length;
+
+    if (totalCombined == 0) {
       return SuccessRateResult(
         rate: null,
         totalAttempts: 0,
+        logAttempts: 0,
+        manualSuccess: manualSuccess,
+        manualFail: manualFail,
         windowSize: windowSize,
         neededMore: windowSize,
       );
     }
-    if (attempts.length < windowSize) {
+    if (totalCombined < windowSize) {
       return SuccessRateResult(
         rate: null,
-        totalAttempts: attempts.length,
+        totalAttempts: totalCombined,
+        logAttempts: attempts.length,
+        manualSuccess: manualSuccess,
+        manualFail: manualFail,
         windowSize: windowSize,
-        neededMore: windowSize - attempts.length,
+        neededMore: windowSize - totalCombined,
       );
     }
-    final recent = attempts.take(windowSize).toList();
-    final successes = recent.where((a) => a.isSuccess).length;
+
+    // 直近 windowSize 件で成功率を算出
+    final recent = combined.take(windowSize).toList();
+    final successes = recent.where((s) => s).length;
     final rate = successes / windowSize * 100;
+
     return SuccessRateResult(
       rate: rate,
-      totalAttempts: attempts.length,
+      totalAttempts: totalCombined,
+      logAttempts: attempts.length,
+      manualSuccess: manualSuccess,
+      manualFail: manualFail,
       windowSize: windowSize,
       neededMore: 0,
     );
   }
 
   /// 直近 100, 50, 30 回の成功率をまとめて返す
-  SkillSuccessRates getSuccessRates(String skillId) {
+  SkillSuccessRates getSuccessRates(
+    String skillId, {
+    int manualSuccess = 0,
+    int manualFail = 0,
+  }) {
+    final total = getAttempts(skillId).length + manualSuccess + manualFail;
     return SkillSuccessRates(
-      rate100: calculateRate(skillId, 100),
-      rate50: calculateRate(skillId, 50),
-      rate30: calculateRate(skillId, 30),
-      totalAttempts: getAttempts(skillId).length,
+      rate100: calculateRate(skillId, 100,
+          manualSuccess: manualSuccess, manualFail: manualFail),
+      rate50: calculateRate(skillId, 50,
+          manualSuccess: manualSuccess, manualFail: manualFail),
+      rate30: calculateRate(skillId, 30,
+          manualSuccess: manualSuccess, manualFail: manualFail),
+      totalAttempts: total,
     );
   }
 
@@ -103,13 +146,28 @@ class SkillAttemptProvider extends ChangeNotifier {
 class SuccessRateResult {
   /// null = 試技数不足
   final double? rate;
+
+  /// SkillAttempt ログ + 手動入力 の合計試技数
   final int totalAttempts;
+
+  /// SkillAttempt ログのみの試技数
+  final int logAttempts;
+
+  /// Skill.successCount（手動入力）
+  final int manualSuccess;
+
+  /// Skill.failCount（手動入力）
+  final int manualFail;
+
   final int windowSize;
   final int neededMore;
 
   const SuccessRateResult({
     required this.rate,
     required this.totalAttempts,
+    this.logAttempts = 0,
+    this.manualSuccess = 0,
+    this.manualFail = 0,
     required this.windowSize,
     required this.neededMore,
   });

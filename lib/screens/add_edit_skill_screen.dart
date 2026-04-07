@@ -149,9 +149,45 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.divider),
                 ),
-                child: MasterySlider(
-                  mastery: _mastery,
-                  onChanged: (v) => setState(() => _mastery = v),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MasterySlider(
+                      mastery: _mastery,
+                      onChanged: (v) => setState(() => _mastery = v),
+                    ),
+                    // 試行数 > 0 の場合は自動計算の案内を表示
+                    if (_successCount + _failCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppTheme.teal.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: AppTheme.teal.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline,
+                                color: AppTheme.teal, size: 14),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '保存時に成功数・失敗数から習得度を自動計算します'
+                                '（現在の入力値: ${_computeMastery()}%）',
+                                style: const TextStyle(
+                                  color: AppTheme.teal,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
@@ -818,6 +854,20 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
     }
   }
 
+  /// 成功数・失敗数から習得度(mastery)を算出する
+  ///
+  /// 試行数が 0 の場合は手動設定の _mastery をそのまま使用。
+  /// 試行数 > 0 の場合は成功率をもとに mastery を上書き:
+  ///   成功率 ≥ 90% → mastery = 成功率(整数)
+  ///   成功率 70-89% → mastery = 成功率(整数)
+  ///   成功率 < 70%  → mastery = 成功率(整数)
+  int _computeMastery() {
+    final total = _successCount + _failCount;
+    if (total == 0) return _mastery; // 試行なし → 手動値を維持
+    final rate = _successCount / total * 100;
+    return rate.round().clamp(0, 100);
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -825,6 +875,10 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
 
     try {
       final provider = context.read<SkillProvider>();
+
+      // 成功数・失敗数から mastery を自動計算（試行数 0 は手動値を維持）
+      final computedMastery = _computeMastery();
+
       final skill = Skill(
         id: widget.skillId ?? const Uuid().v4(),
         title: _titleController.text.trim(),
@@ -835,7 +889,7 @@ class _AddEditSkillScreenState extends State<AddEditSkillScreen> {
             : _categoryController.text.trim(),
         tags: _tags,
         difficulty: _difficulty,
-        mastery: _mastery,
+        mastery: computedMastery,
         successCount: _successCount,
         failCount: _failCount,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
